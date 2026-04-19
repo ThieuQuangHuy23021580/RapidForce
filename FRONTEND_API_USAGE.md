@@ -7,7 +7,7 @@ File này hướng dẫn cách để một project frontend khác gọi API củ
 Dự án hiện có **2 backend API**:
 
 - `fastapi_app.py` — ảnh 2D -> model 3D (`TripoSR`)
-- `qwen_api.py` — chat AI (`Qwen3-1.7B`)
+- `qwen3/` package — chat AI (`Qwen3-1.7B`) + RAG, tối ưu cho CPU bằng llama.cpp
 
 Frontend có thể là:
 
@@ -32,24 +32,29 @@ Sau khi chạy:
 - Swagger UI: `http://localhost:8000/docs`
 - Health check: `http://localhost:8000/health`
 
-### Service 2: Chat AI (Qwen3-1.7B)
+### Service 2: Chat AI + RAG (Qwen3-1.7B)
 
 ```bash
-.\.venv\Scripts\python.exe -m uvicorn qwen_api:app --host 0.0.0.0 --port 8001
+# Package mới (nhanh hơn 5-10x trên CPU nhờ llama.cpp + GGUF)
+.\.venv\Scripts\python.exe -m qwen3
 ```
 
 Sau khi chạy:
 
 - Swagger UI: `http://localhost:8001/docs`
 - Health check: `http://localhost:8001/health`
+- Backend tự chọn: **llama.cpp (GGUF)** nếu có, fallback sang **transformers**
 
 ### Tổng quan kiến trúc
 
 ```
 Frontend (HTML + JS)
     |
-    |--- POST /generate  --> localhost:8000  (3D model)
-    |--- POST /chat       --> localhost:8001  (AI chat)
+    |--- POST /generate   --> localhost:8000  (3D model)
+    |--- POST /chat        --> localhost:8001  (AI chat)
+    |--- POST /chat?rag    --> localhost:8001  (AI chat + RAG context)
+    |--- POST /rag/index   --> localhost:8001  (re-index tài liệu)
+    |--- GET  /rag/stats   --> localhost:8001  (thống kê RAG)
 ```
 
 ## 2. API Service 1: 3D Generation (port 8000)
@@ -106,7 +111,9 @@ Khuyến nghị:
 - dùng `glb` nếu frontend muốn preview bằng `Three.js`
 - dùng `obj` nếu project của bạn đang xử lý pipeline cũ đã quen với OBJ
 
-## 3. API Service 2: Chat AI (port 8001)
+## 3. API Service 2: Chat AI + RAG (port 8001)
+
+> **Phiên bản mới**: package `qwen3/` thay thế `qwen_api.py` cũ, nhanh hơn 5-10x trên CPU nhờ llama.cpp + GGUF, và hỗ trợ RAG.
 
 ### `GET /health`
 
@@ -117,8 +124,8 @@ Ví dụ response:
 ```json
 {
   "status": "ok",
-  "model": "Qwen/Qwen3-1.7B-Instruct",
-  "device": "cpu"
+  "backend": "llama.cpp (GGUF)",
+  "rag_docs": 42
 }
 ```
 
@@ -137,7 +144,7 @@ Endpoint chính để frontend gửi câu hỏi và nhận câu trả lời từ
 ```json
 {
   "prompt": "Giải thích machine learning ngắn gọn",
-  "max_new_tokens": 200,
+  "max_new_tokens": 512,
   "temperature": 0.7
 }
 ```
@@ -150,7 +157,7 @@ Endpoint chính để frontend gửi câu hỏi và nhận câu trả lời từ
     {"role": "system", "content": "Bạn là trợ lý AI."},
     {"role": "user", "content": "MongoDB là gì?"}
   ],
-  "max_new_tokens": 300,
+  "max_new_tokens": 512,
   "temperature": 0.7
 }
 ```
@@ -160,24 +167,39 @@ Endpoint chính để frontend gửi câu hỏi và nhận câu trả lời từ
 ```json
 {
   "prompt": "Giải thích neural network",
-  "max_new_tokens": 200,
+  "max_new_tokens": 512,
   "stream": true
 }
 ```
+
+**Cách 4: sử dụng RAG (truy xuất context từ knowledge base)**
+
+```json
+{
+  "prompt": "TripoSR hoạt động thế nào?",
+  "max_new_tokens": 512,
+  "use_rag": true
+}
+```
+
+Khi `use_rag: true`, hệ thống sẽ tự động tìm các đoạn tài liệu liên quan từ knowledge base và inject vào system prompt trước khi gọi LLM.
 
 #### Tham số
 
 - `prompt`: chuỗi câu hỏi đơn giản (bỏ qua nếu có `messages`)
 - `messages`: mảng conversation history đầy đủ (ưu tiên hơn `prompt`)
-- `max_new_tokens`: số token tối đa sinh ra, từ `1` đến `2048`, mặc định `200`
+- `max_new_tokens`: số token tối đa sinh ra, từ `1` đến `4096`, mặc định `512`
 - `temperature`: độ sáng tạo, từ `0.0` đến `2.0`, mặc định `0.7`
 - `stream`: `true` để nhận streaming, `false` để nhận JSON, mặc định `false`
+- `use_rag`: `true` để tìm context từ knowledge base, `false` để chat bình thường, mặc định `false`
 
 #### Response (không stream)
 
 ```json
 {
-  "answer": "Machine learning là một nhánh của trí tuệ nhân tạo..."
+  "answer": "Machine learning là một nhánh của trí tuệ nhân tạo...",
+  "backend": "llama.cpp (GGUF)",
+  "rag_used": true
 }
 ```
 
@@ -185,17 +207,40 @@ Endpoint chính để frontend gửi câu hỏi và nhận câu trả lời từ
 
 Trả về `text/plain` với nội dung được gửi từng phần qua HTTP chunked response.
 
+### `POST /rag/index`
+
+Re-index tất cả tài liệu trong thư mục `qwen3/knowledge/`.
+
+```js
+const res = await fetch("http://localhost:8001/rag/index", { method: "POST" });
+const data = await res.json();
+// { "indexed_chunks": 156, "total_chunks": 156 }
+```
+
+### `GET /rag/stats`
+
+Xem thống kê RAG hiện tại.
+
+```json
+{
+  "total_chunks": 156,
+  "knowledge_dir": "D:/path/to/qwen3/knowledge",
+  "embed_model": "all-MiniLM-L6-v2"
+}
+```
+
 ### Ví dụ gọi `/chat` từ JS (không stream)
 
 ```js
-async function askQwen(prompt) {
+async function askQwen(prompt, useRag = false) {
   const response = await fetch("http://localhost:8001/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       prompt: prompt,
-      max_new_tokens: 200,
+      max_new_tokens: 512,
       temperature: 0.7,
+      use_rag: useRag,
     }),
   });
 
@@ -206,6 +251,12 @@ async function askQwen(prompt) {
   const data = await response.json();
   return data.answer;
 }
+
+// Chat bình thường
+const answer1 = await askQwen("Giải thích machine learning");
+
+// Chat với RAG (tìm context từ knowledge base)
+const answer2 = await askQwen("TripoSR hoạt động thế nào?", true);
 ```
 
 ### Ví dụ gọi `/chat` từ JS (streaming)
@@ -558,19 +609,23 @@ Frontend cần nhớ:
 3. Nhận file `.glb` hoặc `.obj`
 4. Download hoặc preview bằng `Three.js`
 
-### Cho Chat AI (port 8001)
+### Cho Chat AI + RAG (port 8001)
 
-1. Chạy backend `qwen_api.py`
-2. Gọi `POST /chat` bằng `JSON`
-3. Nhận `answer` hoặc stream token
-4. Hiển thị câu trả lời lên UI
+1. Chạy backend `python -m qwen3`
+2. (Tuỳ chọn) Đặt tài liệu vào `qwen3/knowledge/` để dùng RAG
+3. Gọi `POST /chat` bằng `JSON`, thêm `"use_rag": true` nếu cần RAG
+4. Nhận `answer` hoặc stream token
+5. Gọi `POST /rag/index` nếu thêm tài liệu mới
 
 ### Bảng tham chiếu nhanh
 
-| Chức năng       | Service          | Port   | Endpoint        | Input            | Output          |
-|-----------------|------------------|--------|-----------------|------------------|-----------------|
-| Health check 3D | `fastapi_app.py` | `8000` | `GET /health`   | —                | JSON status     |
-| Generate 3D     | `fastapi_app.py` | `8000` | `POST /generate`| `FormData` ảnh   | file `.glb/.obj`|
-| Health check AI | `qwen_api.py`    | `8001` | `GET /health`   | —                | JSON status     |
-| Chat AI         | `qwen_api.py`    | `8001` | `POST /chat`    | JSON prompt      | JSON answer     |
-| Chat AI stream  | `qwen_api.py`    | `8001` | `POST /chat`    | JSON + stream    | text stream     |
+| Chức năng       | Service          | Port   | Endpoint         | Input            | Output           |
+|-----------------|------------------|--------|------------------|------------------|------------------|
+| Health check 3D | `fastapi_app.py` | `8000` | `GET /health`    | —                | JSON status      |
+| Generate 3D     | `fastapi_app.py` | `8000` | `POST /generate` | `FormData` ảnh   | file `.glb/.obj` |
+| Health check AI | `qwen3` package  | `8001` | `GET /health`    | —                | JSON status      |
+| Chat AI         | `qwen3` package  | `8001` | `POST /chat`     | JSON prompt      | JSON answer      |
+| Chat AI + RAG   | `qwen3` package  | `8001` | `POST /chat`     | JSON + use_rag   | JSON answer      |
+| Chat AI stream  | `qwen3` package  | `8001` | `POST /chat`     | JSON + stream    | text stream      |
+| RAG re-index    | `qwen3` package  | `8001` | `POST /rag/index`| —                | JSON stats       |
+| RAG stats       | `qwen3` package  | `8001` | `GET /rag/stats` | —                | JSON stats       |

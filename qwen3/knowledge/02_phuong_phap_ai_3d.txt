@@ -1,0 +1,102 @@
+== Các phương pháp AI tái tạo và sinh 3D ==
+
+Lĩnh vực AI 3D đang phát triển rất nhanh. Dưới đây là tổng hợp các phương pháp chính.
+
+=== 1. NeRF (Neural Radiance Fields) ===
+
+Ra đời: 2020 (Mildenhall et al.)
+Ý tưởng: Biểu diễn scene 3D bằng một mạng neural MLP. Với mỗi điểm 3D (x, y, z) và hướng nhìn (θ, φ), mạng dự đoán màu (RGB) và mật độ (σ). Kết hợp với volume rendering để tạo ảnh 2D từ mọi góc nhìn.
+
+Ưu điểm:
+- Chất lượng render cực cao, photorealistic
+- Xử lý tốt hiệu ứng phụ thuộc góc nhìn (view-dependent effects) như phản chiếu, trong suốt
+- Bộ nhớ thấp khi huấn luyện (model nhỏ)
+
+Nhược điểm:
+- Huấn luyện lâu (vài giờ đến vài ngày)
+- Render chậm (ray marching từng pixel)
+- Khó real-time
+- Cần nhiều ảnh đầu vào (thường 50-200 ảnh)
+
+Biến thể tiên tiến:
+- Instant-NGP (NVIDIA, 2022): huấn luyện trong vài giây nhờ hash encoding
+- MobileNeRF: tối ưu cho thiết bị di động
+- Plenoxels: dùng voxel grid thay MLP, nhanh hơn
+- TensoRF: phân rã tensor cho hiệu quả cao
+- Mip-NeRF 360: xử lý scene ngoài trời 360 độ
+- Block-NeRF (Google): tái tạo quy mô thành phố
+
+=== 2. 3D Gaussian Splatting (3DGS) ===
+
+Ra đời: 2023 (Kerbl et al.)
+Ý tưởng: Biểu diễn scene bằng hàng triệu hình Gaussian 3D (ellipsoid). Mỗi Gaussian có vị trí, kích thước, hướng, màu sắc, và độ trong suốt. Render bằng cách "splat" (chiếu) các Gaussian lên mặt phẳng ảnh.
+
+Ưu điểm:
+- Render real-time (60+ FPS) nhờ rasterization thay vì ray marching
+- Huấn luyện nhanh hơn NeRF nhiều lần
+- Chất lượng cao, đặc biệt với scene phức tạp
+- Có thể chỉnh sửa trực tiếp (di chuyển, xóa Gaussian)
+
+Nhược điểm:
+- Bộ nhớ lớn (hàng triệu Gaussian, mỗi cái có nhiều tham số)
+- Khó chuyển sang mesh truyền thống
+- Một số scene có artifacts (floaters)
+- Cần nhiều ảnh đầu vào
+
+Cải tiến 2025:
+- Nén Gaussian: giảm 90% bộ nhớ so với NeRF
+- Cloud streaming: truyền phát Gaussian qua mạng với độ trễ thấp
+- Tối ưu mobile: chạy trên điện thoại
+- Tích hợp vật lý: mô phỏng va chạm, trọng lực với Gaussian
+- Chỉnh sửa vật liệu và ánh sáng real-time
+
+=== 3. Feed-Forward 3D Reconstruction (LRM, TripoSR, ...) ===
+
+Ý tưởng: Huấn luyện một model lớn (transformer) để dự đoán 3D trực tiếp từ ảnh, không cần tối ưu per-scene. Một lần forward pass → ra mesh 3D.
+
+Đại diện: LRM, TripoSR, InstantMesh, CRM, LGM, Wonder3D, Zero-1-to-3
+Ưu điểm:
+- Cực nhanh (dưới 1 giây)
+- Chỉ cần 1 ảnh đầu vào
+- Không cần huấn luyện per-scene
+
+Nhược điểm:
+- Chất lượng thấp hơn NeRF/3DGS (do phải generalize)
+- Mặt sau đối tượng bị "hallucinated"
+- Giới hạn ở đối tượng đơn lẻ
+
+=== 4. Diffusion-based 3D Generation ===
+
+Ý tưởng: Áp dụng diffusion models (tương tự Stable Diffusion cho ảnh) vào không gian 3D.
+
+Các hướng:
+a) Text-to-3D: DreamFusion (Google), Magic3D (NVIDIA), ProlificDreamer
+   - Dùng Score Distillation Sampling (SDS) để tối ưu NeRF/mesh từ text prompt
+   - Chất lượng cao nhưng rất chậm (vài giờ)
+
+b) Image-to-3D: Zero123, Zero-1-to-3++, SV3D (Stability AI)
+   - Sinh ảnh đa góc nhìn từ 1 ảnh, rồi dùng reconstruction
+   - Nhanh hơn text-to-3D
+
+c) Native 3D diffusion: Roblox Cube 3D (2025)
+   - Huấn luyện trực tiếp trên dữ liệu 3D gốc
+   - Shape tokenization giống language model
+   - Tạo 3D objects tương thích game engine
+   - Hỗ trợ text, image, video input
+
+=== 5. Hybrid Approaches (2025-2026) ===
+
+Xu hướng mới nhất kết hợp nhiều phương pháp:
+- HyRF: kết hợp Gaussian Splatting + Neural Fields, giảm 20x kích thước model so với 3DGS thuần, giữ real-time
+- GS-LRM: dùng kiến trúc LRM nhưng output là Gaussian thay vì triplane NeRF
+- Diffusion + Gaussian Splatting: dùng diffusion để sinh Gaussian ban đầu, rồi refine
+
+=== So sánh tổng quan ===
+
+Phương pháp      | Input cần  | Tốc độ      | Chất lượng | Real-time | Use case
+-----------------|-----------|-------------|------------|-----------|--------
+NeRF             | 50-200 ảnh | Giờ-ngày    | Rất cao    | Không     | Film, nghiên cứu
+3D Gaussian      | 50-200 ảnh | Phút-giờ    | Cao        | Có (60fps)| VR, game, interactive
+Feed-forward     | 1 ảnh      | < 1 giây    | Trung bình | Có        | E-commerce, prototype
+Diffusion text   | Text       | Giờ         | Cao        | Không     | Creative, concept
+Diffusion image  | 1 ảnh      | Phút        | Khá cao    | Không     | Product viz

@@ -1,0 +1,59 @@
+== TripoSR – Mô hình tái tạo 3D từ ảnh đơn ==
+
+TripoSR là mô hình AI mã nguồn mở do Stability AI và Tripo phát triển, cho phép tái tạo (reconstruct) đối tượng 3D chất lượng cao từ MỘT ảnh 2D duy nhất trong thời gian dưới 0.5 giây trên GPU NVIDIA A100.
+
+=== Kiến trúc kỹ thuật ===
+
+TripoSR dựa trên kiến trúc LRM (Large Reconstruction Model) – một transformer-based encoder-decoder với ~500 triệu tham số huấn luyện được:
+
+1. Image Encoder (DINO ViT): Ảnh đầu vào được đưa qua vision transformer (DINO) đã pre-trained. DINO chia ảnh thành các patch (16x16 pixel) và mã hóa thành chuỗi token đặc trưng (feature tokens). Mỗi token chứa thông tin ngữ nghĩa (semantic) và không gian (spatial) của vùng ảnh tương ứng.
+
+2. Image-to-Triplane Transformer Decoder: Đây là thành phần cốt lõi. Decoder nhận feature tokens từ encoder và chiếu (project) chúng vào không gian 3D dưới dạng triplane representation. Triplane là ba mặt phẳng trực giao (XY, XZ, YZ), mỗi mặt phẳng chứa feature map 2D. Bất kỳ điểm nào trong không gian 3D đều có thể được truy vấn bằng cách lấy mẫu (sample) trên cả ba mặt phẳng và kết hợp features.
+
+3. NeRF Head: Từ triplane features, một MLP nhỏ (neural radiance field head) dự đoán màu sắc (color) và mật độ (density/occupancy) cho mỗi điểm 3D. Điều này cho phép render hình ảnh từ mọi góc nhìn hoặc trích xuất mesh.
+
+4. Mesh Extraction: Sử dụng thuật toán Marching Cubes để chuyển đổi trường mật độ (density field) thành lưới tam giác (triangle mesh). Tham số resolution (ví dụ: 256) quyết định độ mịn của lưới – resolution cao hơn cho mesh chi tiết hơn nhưng tốn thời gian hơn.
+
+=== Dữ liệu huấn luyện ===
+
+TripoSR được huấn luyện trên khoảng 1 triệu đối tượng 3D từ:
+- Objaverse: bộ dữ liệu 3D tổng hợp (synthetic) lớn nhất, chứa hơn 800K model 3D
+- MVImgNet: bộ dữ liệu ảnh đa góc nhìn (multi-view) từ thế giới thực
+
+Mô hình được huấn luyện end-to-end bằng 2D multi-view losses – so sánh ảnh render từ model dự đoán với ảnh thật từ nhiều góc nhìn, thay vì dùng loss 3D truyền thống.
+
+=== Cải tiến so với LRM gốc ===
+
+TripoSR giới thiệu nhiều cải tiến:
+- Xử lý dữ liệu tốt hơn: lọc và tiền xử lý dữ liệu huấn luyện kỹ hơn
+- Thiết kế model cải tiến: tối ưu kiến trúc transformer cho tốc độ
+- Kỹ thuật huấn luyện nâng cao: learning rate scheduling, data augmentation
+- Tốc độ: nhanh hơn đáng kể so với LRM gốc (dưới 0.5s vs ~5s)
+- Mã nguồn mở: có thể tải và chạy local hoàn toàn
+
+=== Phiên bản ===
+
+- TripoSR v1.0 (03/2024): phiên bản đầu tiên, single-image reconstruction
+- TripoSR v2.0: hỗ trợ multi-view reconstruction, nhanh hơn 40%, giảm 45% artifacts, texture resolution gấp đôi
+
+=== Cách sử dụng trong RapidForce ===
+
+Trong dự án RapidForce, TripoSR được sử dụng qua class TSR (tsr/system.py):
+1. TSR.from_pretrained("stabilityai/TripoSR") – tải model từ Hugging Face Hub (chỉ lần đầu, ~1.5 GB)
+2. model(image, device) – chạy forward pass, trả về scene_codes (triplane representation)
+3. model.extract_mesh(scene_codes, resolution=256) – trích xuất 3D mesh bằng Marching Cubes
+4. Mesh được xuất ra file GLB hoặc OBJ
+
+=== Giới hạn ===
+
+- Chỉ hoạt động tốt với đối tượng đơn lẻ (single object), không phải toàn bộ scene
+- Chất lượng phụ thuộc vào chất lượng ảnh đầu vào
+- Mặt sau (back side) của đối tượng được suy luận (hallucinated) vì chỉ có 1 ảnh
+- Texture có thể thiếu chi tiết ở những vùng không nhìn thấy trong ảnh gốc
+- Cần GPU mạnh (CUDA) để chạy nhanh, trên CPU rất chậm
+
+=== ID model trên Hugging Face ===
+
+Model ID: stabilityai/TripoSR
+Model được tải về máy local hoàn toàn, KHÔNG gọi API bên ngoài khi inference.
+Quá trình inference (forward pass) chạy 100% offline trên máy của người dùng.

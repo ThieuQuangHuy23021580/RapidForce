@@ -329,3 +329,20 @@ Bạn có thể kết luận theo hướng:
 Nếu cần nói ngắn gọn trong buổi bảo vệ:
 
 > RapidForce là một hệ thống chuyển ảnh 2D thành mô hình 3D dựa trên TripoSR. Đề tài tập trung vào việc tích hợp mô hình pretrained vào một pipeline hoàn chỉnh gồm tiền xử lý ảnh, tái dựng mesh, xuất dữ liệu 3D và triển khai qua web UI/API. Giá trị chính của hệ thống nằm ở khả năng ứng dụng và đánh giá thực nghiệm, thay vì ở việc đề xuất kiến trúc học sâu mới.
+
+
+Làm sao để nâng tầm mà không phải viết model mới
+Bạn không cần tự train model mới. Bạn vẫn có thể làm đề tài khá tốt nếu thêm:
+
+một bộ dữ liệu test nhỏ do bạn tự xây
+bảng so sánh nhiều cấu hình input
+đánh giá định tính/định lượng đầu ra
+đo hiệu năng hệ thống
+thử triển khai frontend thật và đánh giá usability/kỹ thuật tích hợp
+đề xuất cải tiến pipeline của riêng bạn
+Ví dụ phần đóng góp có thể là:
+
+thiết kế pipeline frontend-backend cho 2D-to-3D
+đánh giá vai trò của preprocessing với mô hình pretrained
+đề xuất quy trình triển khai web cho mô hình 3D reconstruction
+so sánh tác động của các tham số reconstruction lên chất lượng mesh  

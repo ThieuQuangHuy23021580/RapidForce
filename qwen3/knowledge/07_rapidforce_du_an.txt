@@ -1,0 +1,70 @@
+== Dự án RapidForce – Tổng quan ==
+
+RapidForce là dự án nghiên cứu khoa học máy tính, xây dựng hệ thống web tích hợp AI cho tái tạo 3D từ ảnh và trợ lý thông minh.
+
+=== Thành phần chính ===
+
+1. AI 3D Reconstruction (TripoSR):
+   - Input: 1 ảnh 2D bất kỳ
+   - Output: file 3D mesh (GLB hoặc OBJ)
+   - Model: TripoSR (stabilityai/TripoSR trên Hugging Face)
+   - Pipeline: tiền xử lý ảnh → xóa nền → forward pass → Marching Cubes → mesh export
+
+2. AI Chat Assistant (Qwen3):
+   - Model: Qwen3-1.7B-Instruct (quantized GGUF cho tốc độ)
+   - Tính năng: chat, hỏi đáp, hỗ trợ kiến thức 3D
+   - RAG: tự động truy xuất tài liệu liên quan khi trả lời
+   - Backend: llama.cpp (nhanh trên CPU) hoặc transformers (fallback)
+
+3. FastAPI Backend:
+   - Service 1 (port 8000): API tạo model 3D từ ảnh
+   - Service 2 (port 8001): API chat AI + RAG
+   - CORS enabled: cho phép frontend khác domain gọi API
+
+4. Frontend Options:
+   - Gradio (tích hợp sẵn): gradio_app.py
+   - JS + HTML: hướng dẫn trong FRONTEND_API_USAGE.md
+   - Three.js: hiển thị model GLB trên web
+
+=== Kiến trúc hệ thống ===
+
+Frontend (HTML/JS/React)
+    ├── Upload ảnh → POST /generate (port 8000) → nhận file GLB/OBJ
+    ├── Chat AI → POST /chat (port 8001) → nhận câu trả lời
+    └── Three.js Viewer → hiển thị model 3D
+
+Backend Python
+    ├── fastapi_app.py → TripoSR inference + mesh export
+    └── qwen3/ package → Qwen3 LLM + RAG pipeline
+
+=== Công nghệ sử dụng ===
+
+- Python 3.10+
+- PyTorch: deep learning framework
+- Transformers (Hugging Face): load và chạy pretrained models
+- llama-cpp-python: inference LLM nhanh trên CPU bằng GGUF quantization
+- FastAPI: web framework cho REST API
+- Uvicorn: ASGI server
+- Trimesh: xử lý 3D mesh
+- rembg: xóa nền ảnh bằng AI (U2-Net)
+- xatlas: UV mapping tự động cho texture baking
+- ChromaDB: vector database cho RAG
+- Sentence-Transformers: embedding model cho RAG
+- Gradio: web UI demo
+
+=== Đóng góp nghiên cứu ===
+
+Dự án RapidForce không tự phát minh model AI mới, mà đóng góp ở:
+1. Tích hợp hệ thống: kết hợp 3D reconstruction + LLM + RAG thành pipeline hoàn chỉnh
+2. Tối ưu deployment: quantization (GGUF) giúp chạy LLM trên CPU thông thường
+3. API hóa: đóng gói AI thành REST API cho frontend bất kỳ
+4. RAG cho domain 3D: xây dựng knowledge base chuyên biệt về 3D AI
+5. Nghiên cứu tham số: khảo sát ảnh hưởng của resolution, foreground_ratio, threshold lên chất lượng output
+
+=== Câu hỏi nghiên cứu gợi ý ===
+
+- Tham số mc_resolution ảnh hưởng thế nào đến chất lượng mesh và thời gian xử lý?
+- Foreground ratio tối ưu cho các loại đối tượng khác nhau là bao nhiêu?
+- So sánh chất lượng output khi có vs không có background removal?
+- RAG cải thiện chất lượng trả lời của LLM bao nhiêu phần trăm?
+- Quantization GGUF (Q4 vs Q8) ảnh hưởng thế nào đến chất lượng phản hồi LLM?

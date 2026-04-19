@@ -1,0 +1,98 @@
+== Kiến trúc Transformer trong AI 3D và Computer Vision ==
+
+=== 1. Transformer Architecture ===
+
+Transformer (Vaswani et al., 2017) ban đầu thiết kế cho NLP, nay trở thành nền tảng cho hầu hết AI hiện đại.
+
+Thành phần chính:
+- Self-Attention: cho phép mỗi token "nhìn thấy" tất cả token khác trong sequence
+  - Query (Q), Key (K), Value (V): ba phép chiếu tuyến tính của input
+  - Attention Score = softmax(QK^T / √d_k) × V
+  - Multi-Head Attention: chạy nhiều attention song song, mỗi head học pattern khác
+- Feed-Forward Network (FFN): 2 lớp linear + activation (GELU/ReLU)
+- Layer Normalization: ổn định quá trình huấn luyện
+- Residual Connections: giúp gradient flow qua nhiều lớp
+
+=== 2. Vision Transformer (ViT) ===
+
+Áp dụng Transformer cho ảnh (Dosovitskiy et al., 2020):
+1. Chia ảnh thành patches (ví dụ: 16x16 pixel)
+2. Flatten mỗi patch thành vector
+3. Thêm position embedding
+4. Đưa qua Transformer encoder
+5. Output: chuỗi feature tokens mô tả ảnh
+
+ViT đạt hoặc vượt CNN truyền thống trên ImageNet khi có đủ dữ liệu huấn luyện.
+
+=== 3. DINO và DINOv2 ===
+
+DINO (Self-Distillation with No Labels): phương pháp self-supervised learning cho ViT.
+- Không cần labels (nhãn) để huấn luyện
+- Student network học bắt chước Teacher network (cập nhật bằng EMA)
+- Tạo ra features cực tốt cho nhiều tác vụ downstream
+
+DINOv2 (Meta, 2023):
+- Phiên bản mạnh hơn, huấn luyện trên 142M ảnh
+- Features tốt cho: classification, segmentation, depth estimation, 3D
+- Được dùng làm image encoder trong nhiều model 3D (bao gồm TripoSR)
+
+Trong TripoSR: DINO ViT được dùng làm image encoder, trích xuất feature tokens mô tả nội dung và cấu trúc của ảnh đầu vào.
+
+=== 4. Triplane Representation ===
+
+Phương pháp biểu diễn 3D hiệu quả, được dùng trong TripoSR và nhiều model 3D:
+
+Ý tưởng: thay vì lưu feature cho TOÀN BỘ không gian 3D (expensive: O(n³)), dùng 3 feature planes 2D:
+- XY plane: nhìn từ trên xuống
+- XZ plane: nhìn từ trước
+- YZ plane: nhìn từ bên
+
+Truy vấn điểm (x, y, z):
+1. Chiếu điểm lên XY plane → lấy feature F_xy tại (x, y)
+2. Chiếu điểm lên XZ plane → lấy feature F_xz tại (x, z)
+3. Chiếu điểm lên YZ plane → lấy feature F_yz tại (y, z)
+4. Kết hợp: F = F_xy + F_xz + F_yz (hoặc concatenate)
+5. Đưa F qua MLP → dự đoán color và density
+
+Ưu điểm: O(3 × n²) thay vì O(n³), tiết kiệm bộ nhớ rất nhiều.
+
+=== 5. Occupancy Field vs Density Field ===
+
+Hai cách biểu diễn "đâu là bên trong đối tượng":
+
+Density Field (NeRF):
+- Mỗi điểm 3D có giá trị σ ∈ [0, +∞)
+- σ cao → đặc (solid), σ thấp → trống (empty)
+- Dùng cho volume rendering
+
+Occupancy Field (SDF variant):
+- Mỗi điểm 3D có giá trị o ∈ [0, 1]
+- o = 1 → bên trong, o = 0 → bên ngoài
+- Bề mặt nằm tại o = threshold
+- Dùng với Marching Cubes để trích xuất mesh
+
+TripoSR dùng occupancy-based approach với Marching Cubes.
+
+=== 6. Cross-Attention trong Image-to-3D ===
+
+Cross-attention cho phép decoder 3D "tham khảo" features từ ảnh 2D:
+- Query: từ triplane tokens (đại diện vị trí 3D)
+- Key, Value: từ image feature tokens (từ DINO encoder)
+- Kết quả: mỗi vị trí 3D được "informed" bởi phần ảnh liên quan
+
+Điều này cho phép model hiểu mối quan hệ giữa pixel 2D và điểm 3D.
+
+=== 7. Pretrained Models và Transfer Learning ===
+
+Chiến lược của các model 3D hiện đại:
+1. Dùng image encoder đã pretrained (DINO, CLIP) – đã học features tốt từ hàng triệu ảnh
+2. Huấn luyện decoder 3D trên dữ liệu 3D (Objaverse)
+3. Fine-tune end-to-end nếu cần
+
+Lợi ích: không cần huấn luyện từ đầu, tiết kiệm thời gian và compute.
+
+Hugging Face Hub: nền tảng chia sẻ pretrained models
+- Model ID: "organization/model-name" (ví dụ: "stabilityai/TripoSR")
+- Tải về local bằng from_pretrained() hoặc hf_hub_download()
+- Sau khi tải, model chạy hoàn toàn offline, không gọi API bên ngoài
+- Cache: model được cache tại ~/.cache/huggingface/hub/
