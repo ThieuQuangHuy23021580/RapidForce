@@ -42,15 +42,23 @@ Kích hoạt thành công khi thấy `(venv)` ở đầu dòng lệnh:
 
 ### Cài dependencies
 
-> ⚠️ Không dùng `pip install -r requirements.txt` — file đó có `transformers==4.35.0` sẽ conflict với Qwen3. Cài thủ công bên dưới.
-
 ```powershell
 # (venv) phải đang active
-pip install omegaconf==2.3.0 Pillow==10.1.0 einops==0.7.0 trimesh==4.0.5 rembg huggingface-hub "imageio[ffmpeg]" xatlas==0.0.9 moderngl==5.10.0 python-multipart
+pip install omegaconf==2.3.0 Pillow==10.1.0 einops==0.7.0 "trimesh>=4.11.5" rembg huggingface-hub "imageio[ffmpeg]" xatlas==0.0.9 moderngl==5.10.0 python-multipart firebase-admin
 pip install git+https://github.com/tatsy/torchmcubes.git
 ```
 
+### Cài công cụ nén Draco
+
+```powershell
+npm install -g gltf-pipeline
+```
+
 ### Chạy
+```powershell
+# kích hoạt venv
+venv\Scripts\activate.bat
+```
 
 ```powershell
 # (venv) phải đang active
@@ -92,6 +100,44 @@ curl -X POST http://localhost:8000/generate `
 | `foreground_ratio` | `0.85` | Tỉ lệ đối tượng trong ảnh (0.5–1.0) |
 | `mc_resolution` | `256` | Độ phân giải mesh (32–320) |
 | `output_format` | `glb` | Định dạng xuất: `glb` hoặc `obj` |
+
+### Lưu trữ Cloud + SQL (theo `DATA.md`)
+
+Endpoint mới: `POST /generate/store`  
+Luồng xử lý: generate `.glb` -> nén Draco -> upload Cloudinary -> lưu metadata SQL.
+
+Tạo file `.env` từ mẫu:
+```powershell
+copy .env.example .env
+```
+
+Sau đó sửa `.env`:
+```env
+CLOUDINARY_CLOUD_NAME=your-cloud-name
+CLOUDINARY_API_KEY=your-api-key
+CLOUDINARY_API_SECRET=your-api-secret
+```
+
+Hoặc thiết lập nhanh bằng biến môi trường tạm thời (PowerShell):
+```powershell
+$env:CLOUDINARY_CLOUD_NAME="your-cloud-name"
+$env:CLOUDINARY_API_KEY="your-api-key"
+$env:CLOUDINARY_API_SECRET="your-api-secret"
+```
+
+Request test:
+```powershell
+curl -X POST http://localhost:8000/generate/store `
+  -F "image=@path/to/your/image.png" `
+  -F "output_format=glb" `
+  -F "compress_draco=true" `
+  -F "user_name=demo_user"
+```
+
+Response:
+```json
+{"model_id": 1, "url": "https://...", "size_mb": 2.34, "user_id": 1, "blob_name": "outputs/xxx_draco.glb"}
+```
 
 ### Chạy bằng CLI (không cần server)
 
