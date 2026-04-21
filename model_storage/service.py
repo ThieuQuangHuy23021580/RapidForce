@@ -21,10 +21,16 @@ class ModelStorageService:
         local_path: str | Path,
         user_id: int | None = None,
         user_name: str | None = None,
+        image_url: str | None = None,
         compress_draco: bool = True,
     ) -> dict:
         src_path = Path(local_path)
         final_path = src_path
+        resolved_user_id = user_id
+        if resolved_user_id is None and user_name:
+            resolved_user_id = db.ensure_user(self.settings.db_path, user_name)
+        if resolved_user_id is not None:
+            db.assert_user_can_store_model(self.settings.db_path, resolved_user_id)
 
         if compress_draco and self.settings.draco_enabled and src_path.suffix.lower() == ".glb":
             compressed_dir = Path(tempfile.gettempdir()) / "rapidforce_compressed"
@@ -47,11 +53,8 @@ class ModelStorageService:
             db_path=self.settings.db_path,
             url=upload_meta["url"],
             size_mb=upload_meta["size"],
+            image_url=image_url,
         )
-
-        resolved_user_id = user_id
-        if resolved_user_id is None and user_name:
-            resolved_user_id = db.ensure_user(self.settings.db_path, user_name)
 
         if resolved_user_id is not None:
             db.link_model_to_user(self.settings.db_path, resolved_user_id, model_id)
@@ -64,5 +67,6 @@ class ModelStorageService:
             "url": upload_meta["url"],
             "size_mb": round(float(upload_meta["size"]), 4),
             "user_id": resolved_user_id,
+            "image_url": image_url,
             "blob_name": upload_meta["blob_name"],
         }

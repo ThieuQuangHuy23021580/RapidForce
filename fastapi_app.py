@@ -92,6 +92,7 @@ def generate_mesh_file(
 class StoreModelResponse(BaseModel):
     model_id: int
     url: str
+    image_url: str | None = None
     size_mb: float
     user_id: int | None = None
     blob_name: str
@@ -100,17 +101,45 @@ class StoreModelResponse(BaseModel):
 class ModelRecordResponse(BaseModel):
     model_id: int
     url: str
+    image_url: str | None = None
     size_mb: float | None = None
+    user_id: int | None = None
     created_at: str | None = None
 
 
 class UserRecordResponse(BaseModel):
     user_id: int
     user_name: str
-    model_id: int | None = None
-    model_url: str | None = None
-    model_size_mb: float | None = None
-    model_created_at: str | None = None
+    first_name: str | None = None
+    last_name: str | None = None
+    email: str | None = None
+    model_count: int = 0
+
+
+class RegisterRequest(BaseModel):
+    first_name: str
+    last_name: str
+    email: str
+    password: str
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class AuthResponse(BaseModel):
+    user_id: int
+    user_name: str
+    first_name: str | None = None
+    last_name: str | None = None
+    email: str
+
+
+class DeleteModelResponse(BaseModel):
+    ok: bool = True
+    model_id: int
+    user_id: int
 
 
 @app.get("/health")
@@ -173,6 +202,7 @@ async def generate_and_store(
     output_format: Literal["obj", "glb"] = Form("glb"),
     user_id: int | None = Form(None),
     user_name: str | None = Form(None),
+    image_url: str | None = Form(None),
     compress_draco: bool = Form(True),
 ):
     if not image.content_type or not image.content_type.startswith("image/"):
@@ -209,12 +239,83 @@ async def generate_and_store(
             local_path=mesh_path,
             user_id=user_id,
             user_name=user_name,
+            image_url=image_url,
             compress_draco=compress_draco,
         )
+    except DatabaseError as exc:
+        if "reached max 5 models" in str(exc):
+            raise HTTPException(
+                status_code=409,
+                detail="User reached max 5 models. Delete old models or use another user.",
+            ) from exc
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
     except StorageError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     return StoreModelResponse(**result)
+
+
+def _validate_email(email: str) -> str:
+    normalized = email.strip().lower()
+    if "@" not in normalized or "." not in normalized.split("@")[-1]:
+        raise HTTPException(status_code=400, detail="Invalid email format.")
+    return normalized
+
+
+@app.post("/auth/register", response_model=AuthResponse)
+def register(payload: RegisterRequest):
+    first_name = payload.first_name.strip()
+    last_name = payload.last_name.strip()
+    email = _validate_email(payload.email)
+    password = payload.password
+
+    if not first_name:
+        raise HTTPException(status_code=400, detail="first_name is required.")
+    if not last_name:
+        raise HTTPException(status_code=400, detail="last_name is required.")
+    if len(password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters.")
+
+    try:
+        user = db.create_auth_user(
+            storage_service.settings.db_path,
+            first_name=first_name,
+            last_name=last_name,
+            email=email,
+            password=password,
+        )
+        return AuthResponse(**user)
+    except DatabaseError as exc:
+        if "Email already registered" in str(exc):
+            raise HTTPException(status_code=409, detail="Email already registered.") from exc
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/auth/login", response_model=AuthResponse)
+def login(payload: LoginRequest):
+    email = _validate_email(payload.email)
+    password = payload.password
+    if not password:
+        raise HTTPException(status_code=400, detail="password is required.")
+
+    try:
+        user = db.get_auth_user_by_email(storage_service.settings.db_path, email=email)
+    except DatabaseError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    if user is None or not user.get("password_hash") or not user.get("password_salt"):
+        raise HTTPException(status_code=401, detail="Invalid email or password.")
+
+    if not db.verify_password(password, user["password_hash"], user["password_salt"]):
+        raise HTTPException(status_code=401, detail="Invalid email or password.")
+
+    return AuthResponse(
+        user_id=user["user_id"],
+        user_name=user["user_name"],
+        first_name=user["first_name"],
+        last_name=user["last_name"],
+        email=user["email"],
+    )
 
 
 @app.get("/models", response_model=list[ModelRecordResponse])
@@ -257,3 +358,30 @@ def get_user(user_id: int):
     if record is None:
         raise HTTPException(status_code=404, detail=f"User {user_id} not found")
     return record
+
+
+@app.get("/users/{user_id}/models", response_model=list[ModelRecordResponse])
+def get_models_by_user(user_id: int, limit: int = 50, offset: int = 0):
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
+    try:
+        user = db.get_user(storage_service.settings.db_path, user_id=user_id)
+        if user is None:
+            raise HTTPException(status_code=404, detail=f"User {user_id} not found")
+        return db.list_models_by_user(storage_service.settings.db_path, user_id=user_id, limit=limit, offset=offset)
+    except DatabaseError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.delete("/users/{user_id}/models/{model_id}", response_model=DeleteModelResponse)
+def delete_user_model(user_id: int, model_id: int):
+    try:
+        db.delete_model_for_user(storage_service.settings.db_path, user_id=user_id, model_id=model_id)
+        return DeleteModelResponse(model_id=model_id, user_id=user_id)
+    except DatabaseError as exc:
+        msg = str(exc)
+        if "not found" in msg.lower():
+            raise HTTPException(status_code=404, detail=msg) from exc
+        if "does not belong" in msg or "not linked" in msg.lower():
+            raise HTTPException(status_code=403, detail=msg) from exc
+        raise HTTPException(status_code=500, detail=msg) from exc
