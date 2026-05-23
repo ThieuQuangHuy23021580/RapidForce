@@ -14,6 +14,7 @@ Endpoints:
 from __future__ import annotations
 
 import logging
+import re
 from typing import List, Optional
 
 from fastapi import FastAPI, HTTPException
@@ -85,6 +86,51 @@ class ChatResponse(BaseModel):
 
 # ── Helpers ────────────────────────────────────────────────────────
 
+DEMO_QA_ANSWER = (
+  "RapidForce là dự án nghiên cứu AI tích hợp để tái tạo 3D từ ảnh và hỗ trợ giải đáp các vấn đề liên quan đến xử lý mô hình 3D. "
+   
+    "Chức năng cốt lõi: Nền tảng tập trung vào việc xử lý và tạo mô hình 3D (3D modeling), cho phép người dùng đặt câu hỏi về quy trình sáng tạo hoặc thực hiện các tác vụ kỹ thuật. "
+    
+    "Chế độ Render 3D: Hệ thống sở hữu tính năng chuyển đổi hình ảnh tải lên thành mô hình 3D (image-to-3D). "
+    
+    "Môi trường làm việc (The Workshop): Cung cấp một giao diện làm việc bao gồm khu vực trò chuyện (Chat) và quản lý mô hình cá nhân (My Models). "
+    
+    "Công cụ hỗ trợ: Tích hợp các tính năng như tự động loại bỏ nền (Remove Background) khi xử lý hình ảnh để phục vụ việc tạo mô hình. "
+
+)
+
+
+def _normalize_text(text: str) -> str:
+    return re.sub(r"\s+", " ", text.strip().lower())
+
+
+def _extract_latest_user_text(req: ChatRequest) -> str | None:
+    if req.messages:
+        for m in reversed(req.messages):
+            if m.role == "user" and m.content:
+                return m.content
+    if req.prompt:
+        return req.prompt
+    return None
+
+
+def _quick_demo_answer(req: ChatRequest) -> str | None:
+    """Return canned answer for demo questions to bypass model inference."""
+    user_text = _extract_latest_user_text(req)
+    if not user_text:
+        return None
+    normalized = _normalize_text(user_text)
+    if normalized in {
+        "rapidforce là gì?",
+        "rapidforce là gì",
+        "rapidforce la gi?",
+        "rapidforce la gi",
+        "what is rapidforce?",
+        "what is rapidforce",
+    }:
+        return DEMO_QA_ANSWER
+    return None
+
 def _resolve_messages(req: ChatRequest) -> tuple[list[dict], bool]:
     """Build the messages list. RAG context is injected automatically
     when the knowledge base has documents."""
@@ -148,6 +194,12 @@ def health():
 
 @app.post("/chat")
 def chat(req: ChatRequest):
+    quick_answer = _quick_demo_answer(req)
+    if quick_answer is not None:
+        if req.stream:
+            return StreamingResponse(iter([quick_answer]), media_type="text/plain")
+        return ChatResponse(answer=quick_answer, backend="demo-cached", rag_used=False)
+
     messages, rag_used = _resolve_messages(req)
 
     if req.stream:
