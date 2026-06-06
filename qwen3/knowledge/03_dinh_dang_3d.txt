@@ -1,0 +1,106 @@
+== Các định dạng file 3D phổ biến ==
+
+=== GLB / GLTF (GL Transmission Format) ===
+
+Tổ chức: Khronos Group (cùng tổ chức quản lý OpenGL, Vulkan)
+Phiên bản hiện tại: glTF 2.0
+
+GLTF là "JPEG của 3D" – định dạng chuẩn để truyền tải model 3D trên web và ứng dụng.
+- .gltf: file JSON mô tả cấu trúc scene, tham chiếu đến file .bin (geometry) và texture riêng
+- .glb: phiên bản binary đóng gói tất cả vào 1 file duy nhất (geometry + texture + metadata)
+
+Đặc điểm:
+- Hỗ trợ: mesh, material (PBR), texture, animation, skeleton, morph targets, camera, light
+- PBR Material: metallic-roughness workflow chuẩn công nghiệp
+- Nén: Draco compression cho geometry, KTX2 cho texture
+- Kích thước nhỏ, load nhanh
+- Hỗ trợ rộng rãi: Three.js, Babylon.js, Unity, Unreal, Blender, iOS, Android
+
+Khi nào dùng: web 3D viewer, AR/VR, game, e-commerce, chia sẻ model
+Khuyến nghị: GLB là lựa chọn tốt nhất cho web frontend vì gọn và tương thích rộng.
+
+=== OBJ (Wavefront OBJ) ===
+
+Ra đời: 1980s (Wavefront Technologies)
+Một trong những định dạng 3D lâu đời nhất, vẫn được dùng rộng rãi.
+
+Đặc điểm:
+- File text thuần (human-readable)
+- Chứa: vertices, normals, texture coordinates, faces
+- File .mtl đi kèm: mô tả material (màu sắc, texture path)
+- KHÔNG hỗ trợ: animation, skeleton, PBR material
+- Kích thước lớn hơn GLB (do text format)
+
+Khi nào dùng: pipeline cũ, nghiên cứu, in 3D, trao đổi giữa các phần mềm cũ
+Nhược điểm: không gọn, không hỗ trợ animation, material hạn chế
+
+=== FBX (Filmbox) ===
+
+Chủ sở hữu: Autodesk (proprietary)
+Định dạng chuẩn trong ngành film và game AAA.
+
+Đặc điểm:
+- Hỗ trợ đầy đủ: mesh, material, animation, skeleton, blend shapes, camera, light
+- Có cả format binary và ASCII
+- Tích hợp tốt với: Maya, 3ds Max, MotionBuilder, Unity, Unreal
+- Kích thước file lớn hơn GLB
+
+Khi nào dùng: game development, film production, pipeline chuyên nghiệp
+Nhược điểm: proprietary (không open), nặng, không tối ưu cho web
+
+=== USDZ (Universal Scene Description Zip) ===
+
+Chủ sở hữu: Apple + Pixar
+Định dạng chuẩn cho AR trên hệ sinh thái Apple.
+
+Đặc điểm:
+- Đóng gói USD scene vào 1 file zip (không nén)
+- Hỗ trợ PBR material, animation
+- Tích hợp native với iOS, macOS, visionOS (Apple Vision Pro)
+- Quick Look: mở trực tiếp trên Safari, Messages, Mail
+
+Khi nào dùng: AR trên iPhone/iPad, Apple Vision Pro, e-commerce trên iOS
+Nhược điểm: chủ yếu dùng trong hệ sinh thái Apple
+
+=== STL (Stereolithography) ===
+
+Ra đời: 1987 (3D Systems)
+Định dạng phổ biến nhất cho in 3D (3D printing).
+
+Đặc điểm:
+- Chỉ chứa geometry (tam giác) + normals
+- KHÔNG có: color, texture, material, animation
+- Có cả format binary và ASCII
+- Rất đơn giản
+
+Khi nào dùng: in 3D, rapid prototyping, CAD
+Nhược điểm: không có color/texture, không dùng cho visualization
+
+=== PLY (Polygon File Format / Stanford Triangle Format) ===
+
+Đặc điểm:
+- Hỗ trợ vertex colors (màu trên từng vertex)
+- Dùng nhiều trong point cloud và 3D scanning
+- Format đơn giản (header + data)
+- Hỗ trợ cả ASCII và binary
+
+Khi nào dùng: point cloud, 3D scan data, nghiên cứu
+
+=== So sánh nhanh ===
+
+Format | Mesh | Texture | Animation | PBR | Web | AR    | In 3D
+-------|------|---------|-----------|-----|-----|-------|------
+GLB    | Có   | Có      | Có        | Có  | Tốt | Tốt   | Không
+OBJ    | Có   | Cơ bản  | Không     | Không| Được| Không | Được
+FBX    | Có   | Có      | Có        | Có  | Kém | Không | Không
+USDZ   | Có   | Có      | Có        | Có  | Apple| Tốt  | Không
+STL    | Có   | Không   | Không     | Không| Kém | Không | Tốt nhất
+PLY    | Có   | Vertex  | Không     | Không| Kém | Không | Không
+
+=== Khuyến nghị cho dự án RapidForce ===
+
+- Web viewer (Three.js): dùng GLB
+- Download cho user: cung cấp cả GLB và OBJ
+- AR trên iOS: convert sang USDZ
+- In 3D: convert sang STL
+- Game engine (Unity/Unreal): GLB hoặc FBX

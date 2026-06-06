@@ -60,6 +60,8 @@ cover/
 local_settings.py
 db.sqlite3
 db.sqlite3-journal
+rapidforce.db
+rapidforce.db-journal
 
 # Flask stuff:
 instance/
@@ -162,3 +164,9 @@ cython_debug/
 # default output directory
 output/
 outputs/
+
+# Firebase secrets
+serviceAccountKey.json
+secrets/*
+!secrets/.gitkeep
+!secrets/README.md

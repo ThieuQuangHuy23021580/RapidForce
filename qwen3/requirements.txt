@@ -1,0 +1,19 @@
+# ── Core ──────────────────────────────────────────────
+fastapi
+uvicorn[standard]
+pydantic
+
+# ── LLM backend: llama.cpp  (PRIMARY – fast CPU inference) ──
+# On Windows, install the CPU prebuilt wheel:
+#   pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+llama-cpp-python
+huggingface_hub
+
+# ── LLM backend: transformers  (FALLBACK) ────────────
+transformers
+accelerate
+torch
+
+# ── RAG ───────────────────────────────────────────────
+chromadb
+sentence-transformers

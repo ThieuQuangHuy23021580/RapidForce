@@ -1,0 +1,123 @@
+== LLM và RAG – Kiến thức chuyên sâu ==
+
+=== 1. Large Language Model (LLM) ===
+
+LLM là mô hình ngôn ngữ lớn, huấn luyện trên lượng text khổng lồ để hiểu và sinh ngôn ngữ tự nhiên.
+
+Kiến trúc phổ biến: Decoder-only Transformer (GPT-style)
+- Input: chuỗi tokens (text được tokenize)
+- Output: xác suất token tiếp theo (autoregressive)
+- Huấn luyện: next token prediction trên corpus lớn
+- Fine-tuning: instruction tuning, RLHF để model tuân theo chỉ dẫn
+
+Qwen3-1.7B-Instruct:
+- 1.7 tỷ tham số (parameters)
+- Hỗ trợ 119 ngôn ngữ (bao gồm tiếng Việt)
+- Context window: 32,768 tokens
+- Instruction-tuned: đã fine-tune để trả lời câu hỏi, tuân theo chỉ dẫn
+- Thinking mode: có khả năng suy luận (chain-of-thought), output có thể chứa <think>...</think> tags
+
+=== 2. Quantization – Giảm kích thước model ===
+
+Quantization là kỹ thuật giảm độ chính xác số học của model weights để giảm kích thước và tăng tốc inference.
+
+Các mức quantization:
+- FP32 (Full Precision): 32 bit/weight → kích thước gốc, chậm nhất trên CPU
+- FP16 / BF16 (Half Precision): 16 bit/weight → giảm 50%, cần GPU hỗ trợ
+- INT8 (Q8_0): 8 bit/weight → giảm 75%, chất lượng gần như giữ nguyên
+- INT4 (Q4_K_M): 4 bit/weight → giảm 87.5%, chất lượng giảm nhẹ nhưng chấp nhận được
+
+Ví dụ với Qwen3-1.7B:
+- FP32: ~6.4 GB RAM
+- Q8_0: ~1.7 GB RAM
+- Q4_K_M: ~1.0 GB RAM ← dùng trong RapidForce
+
+GGUF (GPT-Generated Unified Format):
+- Format file chứa model đã quantize
+- Thiết kế cho llama.cpp
+- Tên file mô tả method: Q4_K_M = 4-bit quantization, K-quant method, Medium quality
+- Các variant: Q2_K (nhỏ nhất, chất lượng thấp) → Q8_0 (lớn nhất, chất lượng cao nhất)
+
+=== 3. llama.cpp – Inference nhanh trên CPU ===
+
+llama.cpp là engine inference LLM viết bằng C/C++, tối ưu cực cao cho CPU:
+
+Tại sao nhanh:
+- Pure C/C++: không có Python/PyTorch overhead
+- SIMD Instructions: dùng AVX2, AVX-512, NEON (ARM) để tính toán song song
+- Quantized Ops: phép nhân matrix tối ưu cho INT4/INT8
+- Memory Mapping: load model bằng mmap, không cần copy toàn bộ vào RAM
+- KV Cache Optimization: quản lý cache hiệu quả
+
+llama-cpp-python: Python binding cho llama.cpp
+- Cung cấp API giống OpenAI
+- create_chat_completion(): chat completion
+- Hỗ trợ streaming
+
+So sánh tốc độ trên CPU (Qwen3-1.7B, ~200 tokens):
+- transformers (FP32): 60-120 giây
+- llama.cpp (Q4_K_M): 5-15 giây
+- Nhanh hơn 5-10x
+
+=== 4. RAG (Retrieval-Augmented Generation) ===
+
+RAG là kỹ thuật tăng cường LLM bằng cách truy xuất thông tin liên quan trước khi sinh câu trả lời.
+
+Tại sao cần RAG:
+- LLM có kiến thức "đóng băng" tại thời điểm huấn luyện
+- LLM có thể "hallucinate" (bịa thông tin)
+- RAG cung cấp thông tin chính xác, cập nhật từ nguồn đáng tin cậy
+- Không cần fine-tune model (tiết kiệm thời gian và compute)
+
+Pipeline RAG:
+1. Document Loading: đọc tài liệu (.txt, .md, .csv, .json)
+2. Chunking: chia tài liệu thành đoạn nhỏ (800-1200 ký tự, có overlap)
+3. Embedding: chuyển mỗi chunk thành vector số (embedding) bằng model nhúng
+4. Indexing: lưu embeddings vào vector database (ChromaDB)
+5. Query: khi user hỏi, embed câu hỏi → tìm top-k chunks gần nhất (cosine similarity)
+6. Augmentation: inject chunks vào system prompt
+7. Generation: LLM sinh câu trả lời dựa trên context
+
+=== 5. Embedding Model ===
+
+Model chuyển text thành vector số (embedding) trong không gian nhiều chiều. Văn bản có nghĩa tương tự sẽ có vector gần nhau.
+
+all-MiniLM-L6-v2 (dùng trong RapidForce):
+- Kích thước: ~80 MB
+- Chiều embedding: 384
+- Tốc độ: rất nhanh (hàng trăm sentence/giây trên CPU)
+- Chất lượng: tốt cho semantic search
+- Đa ngôn ngữ: hỗ trợ tiếng Việt
+
+Cách hoạt động:
+- Input: câu text
+- Output: vector 384 chiều
+- Cosine Similarity: đo độ tương đồng giữa 2 vectors (0 = khác hoàn toàn, 1 = giống hoàn toàn)
+
+=== 6. ChromaDB – Vector Database ===
+
+ChromaDB là vector database mã nguồn mở, nhẹ, dễ tích hợp:
+
+Đặc điểm:
+- PersistentClient: lưu data trên disk, giữ qua restart
+- Hỗ trợ: cosine, L2, inner product distance
+- API đơn giản: add(), query(), update(), delete()
+- Chạy embedded (trong process Python) hoặc server mode
+
+Trong RapidForce:
+- Lưu tại qwen3/.chromadb/
+- Collection "knowledge": chứa tất cả chunks từ qwen3/knowledge/
+- Tự động index khi server khởi động
+- Re-index qua API: POST /rag/index
+
+=== 7. So sánh RAG vs Fine-tuning ===
+
+Tiêu chí        | RAG                    | Fine-tuning
+----------------|------------------------|-----------------------
+Chi phí         | Thấp (chỉ cần embed)   | Cao (GPU, thời gian)
+Cập nhật        | Thêm file → re-index   | Train lại model
+Chính xác       | Cao (có nguồn)         | Phụ thuộc data
+Hallucination   | Giảm nhiều             | Vẫn có thể xảy ra
+Linh hoạt       | Thay đổi knowledge dễ  | Cứng nhắc
+Tốc độ infer    | Chậm hơn chút (embed)  | Giữ nguyên
+Khi nào dùng    | Domain-specific QA     | Thay đổi behavior/style

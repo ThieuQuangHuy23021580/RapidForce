@@ -1,0 +1,150 @@
+== Pipeline xử lý 3D và các kỹ thuật liên quan ==
+
+=== 1. Tiền xử lý ảnh (Image Preprocessing) ===
+
+Trước khi đưa ảnh vào model 3D reconstruction, cần tiền xử lý:
+
+a) Background Removal (Xóa nền):
+   - Thư viện: rembg (Python), dùng model U2-Net
+   - Mục đích: tách đối tượng ra khỏi nền để model tập trung vào object
+   - Cách hoạt động: U2-Net dự đoán mask (foreground/background) cho mỗi pixel
+   - Trong RapidForce: hàm remove_background() trong tsr/utils.py
+
+b) Foreground Resize (Cắt và căn chỉnh):
+   - Crop đối tượng sát viền, sau đó pad (thêm margin) theo tỷ lệ foreground_ratio
+   - foreground_ratio = 0.85 nghĩa là đối tượng chiếm 85% diện tích ảnh
+   - Giá trị hợp lệ: 0.5 đến 1.0
+   - Ratio thấp (0.5): đối tượng nhỏ, nhiều padding → model thấy bối cảnh rộng hơn
+   - Ratio cao (1.0): đối tượng chiếm hết ảnh → model tập trung chi tiết
+
+c) Resize về kích thước chuẩn:
+   - Model TripoSR nhận ảnh 256x256 hoặc 512x512 pixels
+   - Ảnh được resize và normalize về range [0, 1] hoặc [-1, 1]
+
+=== 2. Marching Cubes Algorithm ===
+
+Thuật toán trích xuất bề mặt 3D (isosurface) từ trường vô hướng (scalar field / volume data).
+
+Cách hoạt động:
+1. Chia không gian 3D thành lưới voxel đều (grid of cubes)
+2. Tại 8 góc (corner) của mỗi cube, đánh giá giá trị scalar (density/occupancy)
+3. So sánh giá trị tại mỗi góc với ngưỡng (threshold):
+   - Trên ngưỡng → bên trong đối tượng
+   - Dưới ngưỡng → bên ngoài đối tượng
+4. Mỗi cube có 8 góc, mỗi góc có 2 trạng thái → 2^8 = 256 cấu hình
+5. Tra bảng lookup (15 trường hợp cơ bản) để xác định tam giác nào cắt qua cube
+6. Nội suy (interpolate) vị trí chính xác của vertex trên cạnh cube
+7. Ghép tất cả tam giác → surface mesh
+
+Tham số quan trọng trong RapidForce:
+- resolution (mc_resolution): số chia trên mỗi trục (ví dụ: 256 → lưới 256x256x256)
+  - Giá trị hợp lệ: 32, 64, 96, 128, 160, 192, 224, 256, 288, 320
+  - Resolution cao → mesh mịn hơn, chi tiết hơn, nhưng chậm hơn và tốn RAM hơn
+  - Resolution 256 là mặc định, cân bằng chất lượng và tốc độ
+  - Resolution 320 cho chất lượng cao nhất
+- threshold: ngưỡng để xác định bề mặt (mặc định 25.0 trong TripoSR)
+
+=== 3. Texture Baking ===
+
+Quá trình chuyển thông tin bề mặt (màu sắc, chi tiết) từ representation phức tạp sang texture map 2D gắn với mesh đơn giản.
+
+Quy trình:
+1. UV Unwrapping: "mở" bề mặt mesh 3D ra thành 2D (như bóc vỏ cam)
+   - Xatlas: thư viện tự động tạo UV atlas, được dùng trong RapidForce
+   - Mỗi tam giác trên mesh được ánh xạ đến một vùng trên texture map
+   
+2. Ray Casting: từ mỗi pixel trên texture map:
+   - Chiếu tia (ray) từ bề mặt mesh vào model phức tạp (high-res sculpt hoặc NeRF)
+   - Ghi lại màu sắc/chi tiết tại điểm giao
+   
+3. Bake: lưu kết quả vào texture image (thường là PNG/JPEG)
+
+Các loại map có thể bake:
+- Diffuse/Albedo map: màu sắc cơ bản
+- Normal map: chi tiết bề mặt nhỏ (bump, groove)
+- Ambient Occlusion (AO) map: bóng đổ môi trường
+- Roughness map: độ nhám bề mặt
+- Metallic map: tính chất kim loại
+
+Trong RapidForce: khi bake_texture=True, xatlas tạo UV layout, rồi query model để lấy màu cho từng texel.
+
+=== 4. Vertex Colors vs Texture Maps ===
+
+Hai cách gán màu cho mesh 3D:
+
+Vertex Colors:
+- Mỗi vertex (đỉnh) lưu trực tiếp giá trị RGB
+- Ưu: đơn giản, không cần UV mapping, file nhỏ hơn
+- Nhược: chất lượng phụ thuộc mật độ vertex, không thể có chi tiết nhỏ hơn khoảng cách giữa 2 vertex
+- Dùng khi: mesh có đủ polygon, hoặc cần xuất nhanh
+
+Texture Maps:
+- UV coordinates ánh xạ mỗi điểm trên mesh đến pixel trên texture image
+- Ưu: chi tiết cao độc lập với số polygon, có thể swap texture
+- Nhược: cần UV mapping (phức tạp), file lớn hơn (thêm texture image)
+- Dùng khi: cần chất lượng cao, game/film production
+
+Trong TripoSR/RapidForce:
+- Mặc định: vertex colors (nhanh)
+- Tùy chọn: bake texture (chất lượng cao hơn, cần xatlas)
+
+=== 5. Mesh Optimization ===
+
+Sau khi trích xuất mesh thô từ Marching Cubes, thường cần tối ưu:
+
+a) Decimation (Giảm polygon):
+   - Giảm số tam giác trong khi giữ hình dạng tổng thể
+   - Thuật toán: Quadric Error Metrics, Edge Collapse
+   - Ví dụ: 500K triangles → 50K triangles mà visual gần giống
+
+b) Smoothing:
+   - Làm mượt bề mặt, giảm noise
+   - Laplacian smoothing, Taubin smoothing
+   - Cẩn thận: smooth quá mức sẽ mất chi tiết
+
+c) Remeshing:
+   - Tạo lại topology đều đặn (uniform triangles)
+   - Tốt cho animation và simulation
+
+d) Hole Filling:
+   - Vá các lỗ trên mesh (thường xảy ra ở vùng khuất)
+
+e) Normal Recalculation:
+   - Tính lại normals cho smooth shading
+
+=== 6. Trimesh Library ===
+
+Thư viện Python xử lý 3D mesh, được dùng trong RapidForce:
+- Load/Save: hỗ trợ OBJ, GLB, STL, PLY, và nhiều format khác
+- Geometry: tính toán volume, surface area, center of mass
+- Boolean Operations: union, intersection, difference giữa 2 mesh
+- Transforms: translate, rotate, scale
+- Repair: fix normals, fill holes, merge vertices
+- Export: trimesh.exchange cho nhiều format
+
+=== 7. Coordinate Systems và Orientation ===
+
+Các phần mềm 3D dùng hệ tọa độ khác nhau:
+- OpenGL/WebGL/Three.js: Y-up, right-handed
+- DirectX/Unity: Y-up, left-handed  
+- Blender: Z-up, right-handed
+- Unreal Engine: Z-up, left-handed
+
+Trong RapidForce: hàm to_gradio_3d_orientation() trong tsr/utils.py áp dụng rotation matrix để chuyển từ hệ tọa độ model sang hệ tọa độ phù hợp cho Gradio 3D viewer (và Three.js).
+
+=== 8. Three.js – Hiển thị 3D trên web ===
+
+Three.js là thư viện JavaScript phổ biến nhất cho 3D trên web browser:
+- Scene: chứa tất cả objects, lights, cameras
+- Camera: PerspectiveCamera (phối cảnh) hoặc OrthographicCamera
+- Renderer: WebGLRenderer (dùng GPU của browser)
+- Loader: GLTFLoader để load file GLB/GLTF
+- Controls: OrbitControls cho phép xoay, zoom, pan bằng chuột
+- Light: AmbientLight + DirectionalLight cho chiếu sáng cơ bản
+
+Quy trình load GLB từ API:
+1. Fetch API → nhận blob
+2. URL.createObjectURL(blob) → tạo URL local
+3. GLTFLoader.load(url) → parse GLB, trả về scene
+4. scene.add(gltf.scene) → thêm model vào scene
+5. renderer.render(scene, camera) → vẽ lên canvas
